@@ -365,8 +365,8 @@ class LogRevisionsListener implements EventSubscriber
             $placeholders = array('?', '?');
             $tableName = $this->config->getTableName($class);
 
-            $sql = "INSERT INTO " . $tableName . " (" .
-                $this->config->getRevisionFieldName() . ", " . $this->config->getRevisionTypeFieldName();
+            $sql = 'INSERT INTO '. $tableName .' ('.
+                $this->config->getRevisionFieldName() .', '. $this->config->getRevisionTypeFieldName();
 
             $fields = array();
 
@@ -410,7 +410,7 @@ class LogRevisionsListener implements EventSubscriber
                 $placeholders[] = '?';
             }
 
-            $sql .= ") VALUES (" . implode(", ", $placeholders) . ")";
+            $sql .= ') VALUES ('. implode(', ', $placeholders) .')';
             $this->insertRevisionSQL[$class->name] = $sql;
         }
 
