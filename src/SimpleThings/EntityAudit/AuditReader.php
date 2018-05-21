@@ -171,8 +171,6 @@ class AuditReader
         $this->em = $em;
         $this->config = $config;
         $this->metadataFactory = $factory;
-        $this->platform = $this->em->getConnection()->getDatabasePlatform();
-        $this->quoteStrategy = $this->em->getConfiguration()->getQuoteStrategy();
     }
 
     /**
@@ -181,6 +179,32 @@ class AuditReader
     public function getConnection()
     {
         return $this->em->getConnection();
+    }
+
+    /**
+     * @return AbstractPlatform
+     *
+     * @throws \Doctrine\DBAL\DBALException
+     */
+    public function getPlatform()
+    {
+        if ($this->platform === null) {
+            $this->platform = $this->em->getConnection()->getDatabasePlatform();
+        }
+
+        return $this->platform;
+    }
+
+    /**
+     * @return QuoteStrategy
+     */
+    public function getQuoteStrategy()
+    {
+        if ($this->quoteStrategy === null) {
+            $this->quoteStrategy = $this->em->getConfiguration()->getQuoteStrategy();
+        }
+
+        return $this->quoteStrategy;
     }
 
     /**
@@ -262,12 +286,12 @@ class AuditReader
             $columnList[] = sprintf(
                 '%s AS %s',
                 $type->convertToPHPValueSQL(
-                    $tableAlias . '.' . $this->quoteStrategy->getColumnName($field, $class, $this->platform),
-                    $this->platform
+                    $tableAlias . '.' . $this->quoteStrategy->getColumnName($field, $class, $this->getPlatform()),
+                    $this->getPlatform()
                 ),
-                $this->platform->quoteSingleIdentifier($field)
+                $this->getPlatform()->quoteSingleIdentifier($field)
             );
-            $columnMap[$field] = $this->platform->getSQLResultCasing($columnName);
+            $columnMap[$field] = $this->getPlatform()->getSQLResultCasing($columnName);
         }
 
         foreach ($class->associationMappings AS $assoc) {
@@ -282,7 +306,7 @@ class AuditReader
                     ? 're' // root entity
                     : 'e';
                 $columnList[] = $tableAlias.'.'.$sourceCol;
-                $columnMap[$sourceCol] = $this->platform->getSQLResultCasing($sourceCol);
+                $columnMap[$sourceCol] = $this->getPlatform()->getSQLResultCasing($sourceCol);
             }
         }
 
@@ -401,7 +425,7 @@ class AuditReader
         foreach ($data as $field => $value) {
             if (isset($class->fieldMappings[$field])) {
                 $type = Type::getType($class->fieldMappings[$field]['type']);
-                $value = $type->convertToPHPValue($value, $this->platform);
+                $value = $type->convertToPHPValue($value, $this->getPlatform());
                 $class->reflFields[$field]->setValue($entity, $value);
             }
         }
@@ -530,7 +554,7 @@ class AuditReader
      */
     public function findRevisionHistory($limit = 20, $offset = 0)
     {
-        $query = $this->platform->modifyLimitQuery(
+        $query = $this->getPlatform()->modifyLimitQuery(
             "SELECT * FROM " . $this->config->getRevisionTableName() . " ORDER BY id DESC", $limit, $offset
         );
         $revisionsData = $this->em->getConnection()->fetchAll($query);
@@ -539,7 +563,7 @@ class AuditReader
         foreach ($revisionsData AS $row) {
             $revisions[] = new Revision(
                 $row['id'],
-                \DateTime::createFromFormat($this->platform->getDateTimeFormatString(), $row['timestamp']),
+                \DateTime::createFromFormat($this->getPlatform()->getDateTimeFormatString(), $row['timestamp']),
                 $row['username']
             );
         }
@@ -588,16 +612,16 @@ class AuditReader
                     ? 're' // root entity
                     : 'e';
                 $columnList .= ', ' . $type->convertToPHPValueSQL(
-                        $tableAlias . '.' . $this->quoteStrategy->getColumnName($field, $class, $this->platform), $this->platform
-                    ) . ' AS ' . $this->platform->quoteSingleIdentifier($field);
-                $columnMap[$field] = $this->platform->getSQLResultCasing($columnName);
+                        $tableAlias . '.' . $this->quoteStrategy->getColumnName($field, $class, $this->getPlatform()), $this->getPlatform()
+                    ) . ' AS ' . $this->getPlatform()->quoteSingleIdentifier($field);
+                $columnMap[$field] = $this->getPlatform()->getSQLResultCasing($columnName);
             }
 
             foreach ($class->associationMappings AS $assoc) {
                 if ( ($assoc['type'] & ClassMetadata::TO_ONE) > 0 && $assoc['isOwningSide']) {
                     foreach ($assoc['targetToSourceKeyColumns'] as $sourceCol) {
                         $columnList .= ', ' . $sourceCol;
-                        $columnMap[$sourceCol] = $this->platform->getSQLResultCasing($sourceCol);
+                        $columnMap[$sourceCol] = $this->getPlatform()->getSQLResultCasing($sourceCol);
                     }
                 }
             }
@@ -658,7 +682,7 @@ class AuditReader
         if (count($revisionsData) == 1) {
             return new Revision(
                 $revisionsData[0]['id'],
-                \DateTime::createFromFormat($this->platform->getDateTimeFormatString(), $revisionsData[0]['timestamp']),
+                \DateTime::createFromFormat($this->getPlatform()->getDateTimeFormatString(), $revisionsData[0]['timestamp']),
                 $revisionsData[0]['username']
             );
         } else {
@@ -711,7 +735,7 @@ class AuditReader
         foreach ($revisionsData AS $row) {
             $revisions[] = new Revision(
                 $row['id'],
-                \DateTime::createFromFormat($this->platform->getDateTimeFormatString(), $row['timestamp']),
+                \DateTime::createFromFormat($this->getPlatform()->getDateTimeFormatString(), $row['timestamp']),
                 $row['username']
             );
         }
@@ -846,10 +870,10 @@ class AuditReader
         foreach ($class->fieldNames as $columnName => $field) {
             $type = Type::getType($class->fieldMappings[$field]['type']);
             $columnList[] = $type->convertToPHPValueSQL(
-                    $this->quoteStrategy->getColumnName($field, $class, $this->platform),
-                    $this->platform
-                ) . ' AS ' . $this->platform->quoteSingleIdentifier($field);
-            $columnMap[$field] = $this->platform->getSQLResultCasing($columnName);
+                    $this->quoteStrategy->getColumnName($field, $class, $this->getPlatform()),
+                    $this->getPlatform()
+                ) . ' AS ' . $this->getPlatform()->quoteSingleIdentifier($field);
+            $columnMap[$field] = $this->getPlatform()->getSQLResultCasing($columnName);
         }
 
         foreach ($class->associationMappings AS $assoc) {
@@ -859,7 +883,7 @@ class AuditReader
 
             foreach ($assoc['targetToSourceKeyColumns'] as $sourceCol) {
                 $columnList[] = $sourceCol;
-                $columnMap[$sourceCol] = $this->platform->getSQLResultCasing($sourceCol);
+                $columnMap[$sourceCol] = $this->getPlatform()->getSQLResultCasing($sourceCol);
             }
         }
 
