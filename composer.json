@@ -37,5 +37,9 @@
         "psr-4": {
             "SimpleThings\\EntityAudit\\Tests\\": "tests/SimpleThings/Tests/EntityAudit"
         }
+    },
+    "branch-alias": {
+        "dev-master": "2.x-dev",
+        "1.x-dev": "1.0.x-dev"
     }
 }
