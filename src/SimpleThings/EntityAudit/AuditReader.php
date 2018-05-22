@@ -290,7 +290,7 @@ class AuditReader
             $columnList[] = sprintf(
                 '%s AS %s',
                 $type->convertToPHPValueSQL(
-                    "{$tableAlias}.{$this->quoteStrategy->getColumnName($field, $class, $this->getPlatform())}",
+                    "{$tableAlias}.{$this->getQuoteStrategy()->getColumnName($field, $class, $this->getPlatform())}",
                     $this->getPlatform()
                 ),
                 $this->getPlatform()->quoteSingleIdentifier($field)
@@ -638,7 +638,7 @@ class AuditReader
                     ? 're' // root entity
                     : 'e';
                 $columnList .= ', '.$type->convertToPHPValueSQL(
-                        "{$tableAlias}.{$this->quoteStrategy->getColumnName($field, $class, $this->getPlatform())}",
+                        "{$tableAlias}.{$this->getQuoteStrategy()->getColumnName($field, $class, $this->getPlatform())}",
                         $this->getPlatform()
                     )
                     ." AS {$this->getPlatform()->quoteSingleIdentifier($field)}";
@@ -926,7 +926,7 @@ class AuditReader
         foreach ($class->fieldNames as $columnName => $field) {
             $type = Type::getType($class->fieldMappings[$field]['type']);
             $columnList[] = $type->convertToPHPValueSQL(
-                    $this->quoteStrategy->getColumnName($field, $class, $this->getPlatform()),
+                    $this->getQuoteStrategy()->getColumnName($field, $class, $this->getPlatform()),
                     $this->getPlatform()
                 )." AS {$this->getPlatform()->quoteSingleIdentifier($field)}";
             $columnMap[$field] = $this->getPlatform()->getSQLResultCasing($columnName);
