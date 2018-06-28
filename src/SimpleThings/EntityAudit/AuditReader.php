@@ -741,7 +741,7 @@ class AuditReader
         $tableName = $this->config->getTableName($class);
 
         if (!\is_array($id)) {
-            $id = [$class->identifier[0] => $id];
+            $id = array($class->identifier[0] => $id);
         }
 
         $whereSQL = '';
@@ -797,7 +797,7 @@ class AuditReader
         $tableName = $this->config->getTableName($class);
 
         if (!\is_array($id)) {
-            $id = [$class->identifier[0] => $id];
+            $id = array($class->identifier[0] => $id);
         }
 
         $whereSQL = '';
