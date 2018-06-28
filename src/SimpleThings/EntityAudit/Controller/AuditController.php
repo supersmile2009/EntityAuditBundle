@@ -77,7 +77,7 @@ class AuditController extends Controller
     {
         $revision = $this->getAuditReader()->findRevision($rev);
         if (!$revision) {
-            throw $this->createNotFoundException(sprintf('Revision %i not found', $rev));
+            throw $this->createNotFoundException(sprintf('Revision %d not found', $rev));
         }
 
         $changedEntities = $this->getAuditReader()->findEntitiesChangedAtRevision($rev);
