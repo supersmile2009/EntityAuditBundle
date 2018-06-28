@@ -24,7 +24,6 @@
 namespace SimpleThings\EntityAudit\EventListener;
 
 use Doctrine\Common\EventSubscriber;
-use Doctrine\DBAL\Schema\Column;
 use Doctrine\ORM\Mapping\ClassMetadata;
 use Doctrine\ORM\Mapping\ClassMetadataInfo;
 use Doctrine\ORM\Tools\Event\GenerateSchemaEventArgs;
@@ -73,12 +72,21 @@ class CreateSchemaListener implements EventSubscriber
         );
 
         foreach ($entityTable->getColumns() as $column) {
-             $options = array_merge(array_filter($column->toArray(), function ($key) {
-                return !\in_array($key, ['name', 'version'], true);
-            }, ARRAY_FILTER_USE_KEY) , ['notnull' => false, 'autoincrement' => false]);
-            
-            /* @var Column $column */
-            $revisionTable->addColumn($column->getName(), $column->getType()->getName(), $options);
+            $options = array_merge(
+                $column->toArray(),
+                ['notnull' => false, 'autoincrement' => false]
+            );
+
+            // These options throw deprecation notice and will throw error in next version of Doctrine
+            // Name can only be set through constructor
+            // Version has to be set through platformOptions, but it shouldn't be set in revision table anyway
+            unset($options['name'], $options['version']);
+
+            $revisionTable->addColumn(
+                $column->getName(),
+                $column->getType()->getName(),
+                $options
+            );
         }
         $revisionTable->addColumn($this->config->getRevisionFieldName(), $this->config->getRevisionIdFieldType());
         $revisionTable->addColumn($this->config->getRevisionTypeFieldName(), 'string', array('length' => 4));
