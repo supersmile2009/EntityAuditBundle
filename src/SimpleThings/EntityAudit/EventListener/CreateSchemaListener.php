@@ -62,7 +62,7 @@ class CreateSchemaListener implements EventSubscriber
 
         if (!$this->metadataFactory->isAudited($cm->name)) {
             $audited = false;
-            if ($cm->isInheritanceTypeJoined() && $cm->rootEntityName == $cm->name) {
+            if ($cm->isInheritanceTypeJoined() && $cm->rootEntityName === $cm->name) {
                 foreach ($cm->subClasses as $subClass) {
                     if ($this->metadataFactory->isAudited($subClass)) {
                         $audited = true;
@@ -99,7 +99,15 @@ class CreateSchemaListener implements EventSubscriber
         }
         $revisionTable->addColumn($this->config->getRevisionFieldName(), $this->config->getRevisionIdFieldType());
         $revisionTable->addColumn($this->config->getRevisionTypeFieldName(), 'string', array('length' => 4));
-        if (!in_array($cm->inheritanceType, array(ClassMetadataInfo::INHERITANCE_TYPE_NONE, ClassMetadataInfo::INHERITANCE_TYPE_JOINED, ClassMetadataInfo::INHERITANCE_TYPE_SINGLE_TABLE))) {
+        if (!in_array(
+            $cm->inheritanceType,
+            array(
+                ClassMetadataInfo::INHERITANCE_TYPE_NONE,
+                ClassMetadataInfo::INHERITANCE_TYPE_JOINED,
+                ClassMetadataInfo::INHERITANCE_TYPE_SINGLE_TABLE,
+            ),
+            true
+        )) {
             throw new \Exception(sprintf('Inheritance type "%s" is not yet supported', $cm->inheritanceType));
         }
 
@@ -107,7 +115,7 @@ class CreateSchemaListener implements EventSubscriber
         $pkColumns[] = $this->config->getRevisionFieldName();
         $revisionTable->setPrimaryKey($pkColumns);
         $revIndexName = $this->config->getRevisionFieldName().'_'.md5($revisionTable->getName()).'_idx';
-        $revisionTable->addIndex(array($this->config->getRevisionFieldName()),$revIndexName);
+        $revisionTable->addIndex(array($this->config->getRevisionFieldName()), $revIndexName);
     }
 
     public function postGenerateSchema(GenerateSchemaEventArgs $eventArgs)
