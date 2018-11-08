@@ -811,7 +811,7 @@ class AuditReader
                 if ($whereSQL) {
                     $whereSQL .= ' AND ';
                 }
-                $whereSQL .= "e.{$class->associationMappings[$idField]['joinColumns'][0]} = ?";
+                $whereSQL .= "e.{$class->associationMappings[$idField]['joinColumns'][0]['name']} = ?";
             }
         }
 

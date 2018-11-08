@@ -193,7 +193,7 @@ class LogRevisionsListener implements EventSubscriber
 
                     $params[] = $meta->reflFields[$idField]->getValue($entity);
 
-                    $sql .= 'AND ' . $columnName . ' = ?';
+                    $sql .= ' AND ' . $columnName . ' = ?';
                 }
 
                 $this->em->getConnection()->executeQuery($sql, $params, $types);
@@ -247,7 +247,20 @@ class LogRevisionsListener implements EventSubscriber
             return;
         }
 
-        $entityData = array_merge($this->getOriginalEntityData($entity), $this->uow->getEntityIdentifier($entity));
+        // handle the case when identifier is also an association.
+        // getEntityIdentifier() returns just association id, not the whole entity.
+        $identifier = $this->uow->getEntityIdentifier($entity);
+        foreach ($identifier as $propertyName => $value) {
+            if (isset($class->associationMappings[$propertyName])) {
+                $associationMetadata = $this->em->getClassMetadata($class->associationMappings[$propertyName]['targetEntity']);
+                $identifier[$propertyName] = $this->uow->tryGetById(
+                    $value,
+                    $associationMetadata->rootEntityName
+                );
+            }
+        }
+
+        $entityData = array_merge($this->getOriginalEntityData($entity), $identifier);
         $this->saveRevisionEntityData($class, $entityData, 'UPD');
     }
 
