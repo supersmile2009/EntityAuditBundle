@@ -114,6 +114,10 @@ class LogRevisionsListener implements EventSubscriber
 
         foreach ($this->extraUpdates as $entity) {
             $className = \get_class($entity);
+            if (! $this->metadataFactory->isAudited(\get_class($entity))) {
+                continue;
+            }
+
             $meta = $em->getClassMetadata($className);
 
             $persister = $uow->getEntityPersister($className);
@@ -300,19 +304,9 @@ class LogRevisionsListener implements EventSubscriber
         }
 
         foreach ($this->uow->getScheduledEntityInsertions() as $entity) {
-            if (! $this->metadataFactory->isAudited(\get_class($entity))) {
-                continue;
+            if (!$this->uow->isInIdentityMap($entity)) {
+                $this->extraUpdates[spl_object_hash($entity)] = $entity;
             }
-
-            $this->extraUpdates[spl_object_hash($entity)] = $entity;
-        }
-
-        foreach ($this->uow->getScheduledEntityUpdates() as $entity) {
-            if (! $this->metadataFactory->isAudited(\get_class($entity))) {
-                continue;
-            }
-
-            $this->extraUpdates[spl_object_hash($entity)] = $entity;
         }
     }
 
@@ -566,12 +560,7 @@ class LogRevisionsListener implements EventSubscriber
                 continue;
             }
 
-            $newVal = $change[1];
-
             if ( ! isset($classMetadata->associationMappings[$field])) {
-                $columnName = $classMetadata->columnNames[$field];
-                $result[$persister->getOwningTable($field)][$columnName] = $newVal;
-
                 continue;
             }
 
@@ -582,10 +571,10 @@ class LogRevisionsListener implements EventSubscriber
                 continue;
             }
 
-            if ($newVal !== null) {
-                if ($uow->isScheduledForInsert($newVal)) {
-                    $newVal = null;
-                }
+            $newVal = $change[1];
+
+            if ($newVal === null || !isset($this->extraUpdates[spl_object_hash($newVal)])) {
+                continue;
             }
 
             $newValId = null;
