@@ -3,9 +3,6 @@ language: php
 sudo: false
 
 branches:
-  only:
-    - 1.0
-    - master
 
 cache:
   directories:

@@ -33,10 +33,16 @@ use Doctrine\ORM\Events;
 use Doctrine\ORM\Mapping\ClassMetadata;
 use Doctrine\ORM\Persisters\Entity\BasicEntityPersister;
 use Doctrine\ORM\Persisters\Entity\EntityPersister;
+use Doctrine\ORM\UnitOfWork;
 use SimpleThings\EntityAudit\AuditManager;
 
 class LogRevisionsListener implements EventSubscriber
 {
+    /**
+     * @var \Closure
+     */
+    protected $extraUpdatesExtractor;
+
     /**
      * @var \SimpleThings\EntityAudit\AuditConfiguration
      */
@@ -112,23 +118,15 @@ class LogRevisionsListener implements EventSubscriber
         $quoteStrategy = $em->getConfiguration()->getQuoteStrategy();
         $uow = $em->getUnitOfWork();
 
-        foreach ($this->extraUpdates as $entity) {
+        foreach ($this->extraUpdates as $extraUpdate) {
+            list($entity, $changeset) = $extraUpdate;
             $className = \get_class($entity);
-            if (! $this->metadataFactory->isAudited(\get_class($entity))) {
-                continue;
-            }
-
             $meta = $em->getClassMetadata($className);
 
             $persister = $uow->getEntityPersister($className);
-            $updateData = $this->prepareUpdateData($persister, $entity);
 
-            if (! isset($updateData[$meta->table['name']]) || ! $updateData[$meta->table['name']]) {
-                continue;
-            }
-
-            foreach ($updateData[$meta->table['name']] as $column => $value) {
-                $field = $meta->getFieldName($column);
+            foreach ($changeset as $field => $value) {
+                $column = $meta->getColumnName($field);
                 $fieldName = $meta->getFieldForColumn($column);
                 $placeholder = '?';
                 if ($meta->hasField($fieldName)) {
@@ -151,7 +149,7 @@ class LogRevisionsListener implements EventSubscriber
                 $types = array();
 
                 if (\in_array($column, $meta->columnNames, true)) {
-                    $types[] = $meta->getTypeOfField($fieldName);
+                    $types[] = $meta->getTypeOfField($field);
                 } else {
                     //try to find column in association mappings
                     $type = null;
@@ -172,7 +170,7 @@ class LogRevisionsListener implements EventSubscriber
                             sprintf('Could not resolve database type for column "%s" during extra updates', $column)
                         );
                     }
-                    
+
                     $types[] = $type;
                 }
 
@@ -203,6 +201,8 @@ class LogRevisionsListener implements EventSubscriber
                 $this->em->getConnection()->executeQuery($sql, $params, $types);
             }
         }
+
+        $this->extraUpdates = [];
     }
 
     /**
@@ -266,6 +266,25 @@ class LogRevisionsListener implements EventSubscriber
 
         $entityData = array_merge($this->getOriginalEntityData($entity), $identifier);
         $this->saveRevisionEntityData($class, $entityData, 'UPD');
+
+        if (empty($this->extraUpdates)) {
+            $this->extractExtraUpdates();
+        }
+    }
+
+    private function extractExtraUpdates()
+    {
+        if (null === $this->extraUpdatesExtractor) {
+            $this->extraUpdatesExtractor = \Closure::bind(function (UnitOfWork $unitOfWork) {
+                return $unitOfWork->extraUpdates;
+            }, null, 'Doctrine\ORM\UnitOfWork');
+        }
+        foreach (($this->extraUpdatesExtractor)($this->uow) as $extraUpdate) {
+            if (! $this->metadataFactory->isAudited(\get_class($entity))) {
+                continue;
+            }
+            $this->extraUpdates[] = $extraUpdate;
+        }
     }
 
     /**
@@ -301,12 +320,6 @@ class LogRevisionsListener implements EventSubscriber
 
             $entityData = array_merge($this->getOriginalEntityData($entity), $this->uow->getEntityIdentifier($entity));
             $this->saveRevisionEntityData($class, $entityData, 'DEL');
-        }
-
-        foreach ($this->uow->getScheduledEntityInsertions() as $entity) {
-            if (!$this->uow->isInIdentityMap($entity)) {
-                $this->extraUpdates[spl_object_hash($entity)] = $entity;
-            }
         }
     }
 
