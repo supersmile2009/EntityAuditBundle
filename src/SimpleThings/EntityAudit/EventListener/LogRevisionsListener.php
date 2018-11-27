@@ -24,7 +24,6 @@
 namespace SimpleThings\EntityAudit\EventListener;
 
 use Doctrine\Common\EventSubscriber;
-use Doctrine\Common\Persistence\Mapping\MappingException;
 use Doctrine\DBAL\Types\Type;
 use Doctrine\ORM\Event\LifecycleEventArgs;
 use Doctrine\ORM\Event\OnFlushEventArgs;
@@ -33,6 +32,7 @@ use Doctrine\ORM\Events;
 use Doctrine\ORM\Mapping\ClassMetadata;
 use Doctrine\ORM\Persisters\Entity\BasicEntityPersister;
 use Doctrine\ORM\Persisters\Entity\EntityPersister;
+use Doctrine\ORM\UnitOfWork;
 use SimpleThings\EntityAudit\AuditManager;
 
 class LogRevisionsListener implements EventSubscriber
@@ -87,6 +87,21 @@ class LogRevisionsListener implements EventSubscriber
      */
     protected $extraUpdates = array();
 
+    /**
+     * @var array
+     */
+    protected $entityDeletions = array();
+
+    /**
+     * @var array
+     */
+    protected $entityInserts = array();
+
+    /**
+     * @var array
+     */
+    protected $entityUpdates = array();
+
     public function __construct(AuditManager $auditManager)
     {
         $this->config = $auditManager->getConfiguration();
@@ -99,106 +114,64 @@ class LogRevisionsListener implements EventSubscriber
     }
 
     /**
-     * @param PostFlushEventArgs $eventArgs
+     * @param PostFlushEventArgs $postFlushEventArgs
      *
-     * @throws MappingException
      * @throws \Doctrine\DBAL\DBALException
-     * @throws MappingException
-     * @throws \Exception
      */
-    public function postFlush(PostFlushEventArgs $eventArgs)
+    public function postFlush(PostFlushEventArgs $postFlushEventArgs)
     {
-        $em = $eventArgs->getEntityManager();
-        $quoteStrategy = $em->getConfiguration()->getQuoteStrategy();
-        $uow = $em->getUnitOfWork();
-
-        foreach ($this->extraUpdates as $entity) {
-            $className = \get_class($entity);
-            $meta = $em->getClassMetadata($className);
-
-            $persister = $uow->getEntityPersister($className);
-            $updateData = $this->prepareUpdateData($persister, $entity);
-
-            if (! isset($updateData[$meta->table['name']]) || ! $updateData[$meta->table['name']]) {
-                continue;
-            }
-
-            foreach ($updateData[$meta->table['name']] as $column => $value) {
-                $field = $meta->getFieldName($column);
-                $fieldName = $meta->getFieldForColumn($column);
-                $placeholder = '?';
-                if ($meta->hasField($fieldName)) {
-                    $field = $quoteStrategy->getColumnName($field, $meta, $this->platform);
-                    $fieldType = $meta->getTypeOfField($field);
-                    if (null !== $fieldType) {
-                        $type = Type::getType($fieldType);
-                        if ($type->canRequireSQLConversion()) {
-                            $placeholder = $type->convertToDatabaseValueSQL('?', $this->platform);
-                        }
-                    }
-                }
-
-                $sql = 'UPDATE ' . $this->config->getTableName($meta) . ' ' .
-                    'SET ' . $field . ' = ' . $placeholder . ' ' .
-                    'WHERE ' . $this->config->getRevisionFieldName() . ' = ? ';
-
-                $params = array($value, $this->getRevisionId());
-
-                $types = array();
-
-                if (\in_array($column, $meta->columnNames, true)) {
-                    $types[] = $meta->getTypeOfField($fieldName);
-                } else {
-                    //try to find column in association mappings
-                    $type = null;
-
-                    foreach ($meta->associationMappings as $mapping) {
-                        if (isset($mapping['joinColumns'])) {
-                            foreach ($mapping['joinColumns'] as $definition) {
-                                if ($definition['name'] === $column) {
-                                    $targetTable = $em->getClassMetadata($mapping['targetEntity']);
-                                    $type = $targetTable->getTypeOfColumn($definition['referencedColumnName']);
-                                }
-                            }
-                        }
-                    }
-
-                    if (null === $type) {
-                        throw new \Exception(
-                            sprintf('Could not resolve database type for column "%s" during extra updates', $column)
-                        );
-                    }
-                    
-                    $types[] = $type;
-                }
-
-                $types[] = $this->config->getRevisionIdFieldType();
-
-                foreach ($meta->identifier AS $idField) {
-                    if (isset($meta->fieldMappings[$idField])) {
-                        $columnName = $meta->fieldMappings[$idField]['columnName'];
-                        $types[] = $meta->fieldMappings[$idField]['type'];
-                    } elseif (isset($meta->associationMappings[$idField])) {
-                        $columnName = $meta->associationMappings[$idField]['joinColumns'][0];
-                        if (\is_array($columnName)) {
-                            if (isset($columnName['name'])) {
-                                $columnName = $columnName['name'];
-                            } else {
-                                // Not much we can do to recover this - we need a column name...
-                                throw new MappingException('Column name not set within meta');
-                            }
-                        }
-                        $types[] = $meta->associationMappings[$idField]['type'];
-                    }
-
-                    $params[] = $meta->reflFields[$idField]->getValue($entity);
-
-                    $sql .= ' AND ' . $columnName . ' = ?';
-                }
-
-                $this->em->getConnection()->executeQuery($sql, $params, $types);
-            }
+        foreach ($this->entityInserts as $entity) {
+            $class = $this->em->getClassMetadata(\get_class($entity));
+            $this->saveRevisionEntityData($class, $this->getOriginalEntityData($entity), 'INS');
         }
+
+        foreach ($this->entityUpdates as $entity) {
+            // get changes => should be already computed here (is a listener)
+            $changeset = $this->uow->getEntityChangeSet($entity);
+            foreach ($this->config->getGlobalIgnoreColumns() as $column) {
+                if (isset($changeset[$column])) {
+                    unset($changeset[$column]);
+                }
+            }
+
+            // if we have no changes left => don't create revision log
+            if (empty($changeset)) {
+                return;
+            }
+
+            $class = $this->em->getClassMetadata(\get_class($entity));
+            // handle the case when identifier is also an association.
+            // getEntityIdentifier() returns just association id, not the whole entity.
+            $identifier = $this->uow->getEntityIdentifier($entity);
+            foreach ($identifier as $propertyName => $value) {
+                if (isset($class->associationMappings[$propertyName])) {
+                    $associationMetadata = $this->em->getClassMetadata($class->associationMappings[$propertyName]['targetEntity']);
+                    $identifier[$propertyName] = $this->uow->tryGetById(
+                        $value,
+                        $associationMetadata->rootEntityName
+                    );
+                }
+            }
+
+            $entityData = array_merge($this->getOriginalEntityData($entity), $identifier);
+            $this->saveRevisionEntityData($class, $entityData, 'UPD');
+        }
+        foreach ($this->entityDeletions as $entityDeletion) {
+            list($entity, $identifier) = $entityDeletion;
+            $class = $this->em->getClassMetadata(\get_class($entity));
+            // If entity remains managed after delete, it means we're dealing with SoftDeleteable.
+            // Recompute changeset to fetch fresh "deleted" state for a revi
+            if ($this->uow->getEntityState($entity, false) === UnitOfWork::STATE_MANAGED) {
+                $this->uow->recomputeSingleEntityChangeSet($class, $entity);
+            }
+            $entityData = array_merge($this->getOriginalEntityData($entity), $identifier);
+            $this->saveRevisionEntityData($class, $entityData, 'DEL');
+        }
+
+
+        $this->entityDeletions =
+        $this->entityInserts =
+        $this->entityUpdates = [];
     }
 
     /**
@@ -216,7 +189,7 @@ class LogRevisionsListener implements EventSubscriber
             return;
         }
 
-        $this->saveRevisionEntityData($class, $this->getOriginalEntityData($entity), 'INS');
+        $this->entityInserts[] = $entity;
     }
 
     /**
@@ -234,34 +207,7 @@ class LogRevisionsListener implements EventSubscriber
             return;
         }
 
-        // get changes => should be already computed here (is a listener)
-        $changeset = $this->uow->getEntityChangeSet($entity);
-        foreach ($this->config->getGlobalIgnoreColumns() as $column) {
-            if (isset($changeset[$column])) {
-                unset($changeset[$column]);
-            }
-        }
-
-        // if we have no changes left => don't create revision log
-        if (empty($changeset)) {
-            return;
-        }
-
-        // handle the case when identifier is also an association.
-        // getEntityIdentifier() returns just association id, not the whole entity.
-        $identifier = $this->uow->getEntityIdentifier($entity);
-        foreach ($identifier as $propertyName => $value) {
-            if (isset($class->associationMappings[$propertyName])) {
-                $associationMetadata = $this->em->getClassMetadata($class->associationMappings[$propertyName]['targetEntity']);
-                $identifier[$propertyName] = $this->uow->tryGetById(
-                    $value,
-                    $associationMetadata->rootEntityName
-                );
-            }
-        }
-
-        $entityData = array_merge($this->getOriginalEntityData($entity), $identifier);
-        $this->saveRevisionEntityData($class, $entityData, 'UPD');
+        $this->entityUpdates[] = $entity;
     }
 
     /**
@@ -294,25 +240,7 @@ class LogRevisionsListener implements EventSubscriber
             if (! $this->metadataFactory->isAudited($class->name)) {
                 continue;
             }
-
-            $entityData = array_merge($this->getOriginalEntityData($entity), $this->uow->getEntityIdentifier($entity));
-            $this->saveRevisionEntityData($class, $entityData, 'DEL');
-        }
-
-        foreach ($this->uow->getScheduledEntityInsertions() as $entity) {
-            if (! $this->metadataFactory->isAudited(\get_class($entity))) {
-                continue;
-            }
-
-            $this->extraUpdates[spl_object_hash($entity)] = $entity;
-        }
-
-        foreach ($this->uow->getScheduledEntityUpdates() as $entity) {
-            if (! $this->metadataFactory->isAudited(\get_class($entity))) {
-                continue;
-            }
-
-            $this->extraUpdates[spl_object_hash($entity)] = $entity;
+            $this->entityDeletions[] = [$entity, $this->uow->getEntityIdentifier($entity)];
         }
     }
 
