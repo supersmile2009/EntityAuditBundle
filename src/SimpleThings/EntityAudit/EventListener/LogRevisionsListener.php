@@ -136,7 +136,7 @@ class LogRevisionsListener implements EventSubscriber
 
             // if we have no changes left => don't create revision log
             if (empty($changeset)) {
-                return;
+                continue;
             }
 
             $class = $this->em->getClassMetadata(\get_class($entity));
@@ -160,8 +160,8 @@ class LogRevisionsListener implements EventSubscriber
             list($entity, $identifier) = $entityDeletion;
             $class = $this->em->getClassMetadata(\get_class($entity));
             // If entity remains managed after delete, it means we're dealing with SoftDeleteable.
-            // Recompute changeset to fetch fresh "deleted" state for a revi
             if ($this->uow->getEntityState($entity, false) === UnitOfWork::STATE_MANAGED) {
+                // Recompute changeset to fetch fresh "deleted" state for a revision
                 $this->uow->recomputeSingleEntityChangeSet($class, $entity);
             }
             $entityData = array_merge($this->getOriginalEntityData($entity), $identifier);
@@ -189,7 +189,7 @@ class LogRevisionsListener implements EventSubscriber
             return;
         }
 
-        $this->entityInserts[] = $entity;
+        $this->entityInserts[spl_object_hash($entity)] = $entity;
     }
 
     /**
@@ -207,7 +207,7 @@ class LogRevisionsListener implements EventSubscriber
             return;
         }
 
-        $this->entityUpdates[] = $entity;
+        $this->entityUpdates[spl_object_hash($entity)] = $entity;
     }
 
     /**
@@ -226,7 +226,7 @@ class LogRevisionsListener implements EventSubscriber
 
         $processedEntities = array();
 
-        foreach ($this->uow->getScheduledEntityDeletions() AS $entity) {
+        foreach ($this->uow->getScheduledEntityDeletions() as $entity) {
             //doctrine is fine deleting elements multiple times. We are not.
             $hash = $this->getHash($entity);
 
@@ -240,7 +240,7 @@ class LogRevisionsListener implements EventSubscriber
             if (! $this->metadataFactory->isAudited($class->name)) {
                 continue;
             }
-            $this->entityDeletions[] = [$entity, $this->uow->getEntityIdentifier($entity)];
+            $this->entityDeletions[spl_object_hash($entity)] = [$entity, $this->uow->getEntityIdentifier($entity)];
         }
     }
 
