@@ -122,6 +122,7 @@ class LogRevisionsListener implements EventSubscriber
     {
         foreach ($this->entityInserts as $entity) {
             $class = $this->em->getClassMetadata(\get_class($entity));
+            $entityData = array_merge($this->getOriginalEntityData($entity), $this->uow->getEntityIdentifier($entity));
             $this->saveRevisionEntityData($class, $this->getOriginalEntityData($entity), 'INS');
         }
 
@@ -172,6 +173,7 @@ class LogRevisionsListener implements EventSubscriber
         $this->entityDeletions =
         $this->entityInserts =
         $this->entityUpdates = [];
+        $this->revisionId = null;
     }
 
     /**
